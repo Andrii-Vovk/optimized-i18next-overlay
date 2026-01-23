@@ -1,0 +1,74 @@
+{
+  "name": "i18n-overlay",
+  "displayName": "i18n Overlay",
+  "description": "Overlay translations for type-safe i18n format",
+  "version": "0.0.1",
+  "packageManager": "bun@latest",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "i18n Overlay",
+      "properties": {
+        "i18nOverlay.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable translation overlays"
+        },
+        "i18nOverlay.localeFiles": {
+          "type": "array",
+          "default": ["**/locales/**/*.json"],
+          "description": "Glob patterns for locale files"
+        },
+        "i18nOverlay.defaultLocale": {
+          "type": "string",
+          "default": "en",
+          "description": "Default locale to display"
+        },
+        "i18nOverlay.annotationDelimiter": {
+          "type": "string",
+          "default": " → ",
+          "description": "Delimiter between key and translation"
+        },
+        "i18nOverlay.useFileNameAsNamespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Treat file names (or parent directory names) as namespaces for translations"
+        },
+        "i18nOverlay.defaultNamespace": {
+          "type": "string",
+          "default": "common",
+          "description": "Default namespace to use when no namespace is provided in code or file name"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "i18nOverlay.reload",
+        "title": "Reload Translations"
+      },
+      {
+        "command": "i18nOverlay.showLogs",
+        "title": "Show Debug Logs"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "bun run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.0.0"
+  }
+}

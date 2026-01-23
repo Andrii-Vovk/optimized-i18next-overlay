@@ -1,0 +1,23 @@
+{
+  "labels": {
+    "title": "Hello World",
+    "max-payment": {
+      "title": "Maximum Payment",
+      "sub-key": {
+        "title": "Sub Title"
+      }
+    }
+  },
+  "common": {
+    "labels": {
+      "maxPayment": {
+        "title": "Max Payment"
+      }
+    }
+  },
+  "namespace": {
+    "key-name": {
+      "property": "Value"
+    }
+  }
+}

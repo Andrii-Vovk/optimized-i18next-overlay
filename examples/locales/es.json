@@ -1,0 +1,23 @@
+{
+  "labels": {
+    "title": "Hola Mundo",
+    "max-payment": {
+      "title": "Pago Máximo",
+      "sub-key": {
+        "title": "Subtítulo"
+      }
+    }
+  },
+  "common": {
+    "labels": {
+      "maxPayment": {
+        "title": "Pago Máximo"
+      }
+    }
+  },
+  "namespace": {
+    "key-name": {
+      "property": "Valor"
+    }
+  }
+}

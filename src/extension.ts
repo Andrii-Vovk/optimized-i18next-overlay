@@ -1,0 +1,115 @@
+import * as vscode from 'vscode';
+import { TranslationLoader } from './translationLoader';
+import { DecorationManager } from './decoration';
+import { logger } from './logger';
+
+let decorationManager: DecorationManager | undefined;
+let translationLoader: TranslationLoader | undefined;
+
+// Throttle decoration updates to avoid excessive calls
+let updateTimeout: NodeJS.Timeout | undefined;
+const THROTTLE_DELAY = 100; // ms
+
+function throttleUpdateDecorations() {
+  if (updateTimeout) {
+    clearTimeout(updateTimeout);
+  }
+  updateTimeout = setTimeout(() => {
+    logger.debug('Throttled decoration update triggered');
+    decorationManager?.updateDecorations();
+  }, THROTTLE_DELAY);
+}
+
+export function activate(context: vscode.ExtensionContext) {
+  logger.info('i18n Overlay extension is now active!');
+  logger.debug('Extension context:', { extensionPath: context.extensionPath });
+
+  // Initialize translation loader
+  logger.debug('Initializing translation loader...');
+  translationLoader = new TranslationLoader();
+  translationLoader.initialize().then(() => {
+    logger.info('Translations loaded successfully');
+    const locales = translationLoader?.getLocales() || [];
+    logger.debug('Loaded locales:', locales);
+    logger.debug('Updating decorations after translation load');
+    decorationManager?.updateDecorations();
+  }).catch((error) => {
+    logger.error('Failed to initialize translations:', error);
+  });
+
+  // Initialize decoration manager
+  logger.debug('Initializing decoration manager...');
+  decorationManager = new DecorationManager(translationLoader);
+
+  // Event listeners
+  const disposables: vscode.Disposable[] = [
+    // Active editor changed
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      logger.debug('Active editor changed', { 
+        fileName: editor?.document.fileName,
+        languageId: editor?.document.languageId 
+      });
+      throttleUpdateDecorations();
+    }),
+
+    // Document changed
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document === vscode.window.activeTextEditor?.document) {
+        logger.debug('Document changed', { 
+          fileName: e.document.fileName,
+          changeCount: e.contentChanges.length 
+        });
+        throttleUpdateDecorations();
+      }
+    }),
+
+    // Configuration changed
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('i18nOverlay')) {
+        logger.info('Configuration changed, reloading translations...');
+        translationLoader?.reload().then(() => {
+          logger.debug('Translations reloaded after config change');
+          throttleUpdateDecorations();
+        }).catch((error) => {
+          logger.error('Failed to reload translations:', error);
+        });
+      }
+    }),
+
+    // Reload command
+    vscode.commands.registerCommand('i18nOverlay.reload', async () => {
+      logger.info('Manual reload command triggered');
+      try {
+        await translationLoader?.reload();
+        logger.info('Translations reloaded successfully');
+        throttleUpdateDecorations();
+        vscode.window.showInformationMessage('i18n translations reloaded');
+      } catch (error) {
+        logger.error('Failed to reload translations:', error);
+        vscode.window.showErrorMessage('Failed to reload translations. Check output for details.');
+      }
+    }),
+
+    // Show output channel command
+    vscode.commands.registerCommand('i18nOverlay.showLogs', () => {
+      logger.showOutputChannel();
+      logger.info('Output channel opened');
+    }),
+  ];
+
+  // Register all disposables
+  context.subscriptions.push(...disposables);
+  logger.debug('Registered event listeners', { count: disposables.length });
+
+  // Initial update
+  logger.debug('Performing initial decoration update');
+  throttleUpdateDecorations();
+}
+
+export function deactivate() {
+  logger.info('Deactivating i18n Overlay extension');
+  decorationManager?.dispose();
+  decorationManager = undefined;
+  translationLoader = undefined;
+  logger.debug('Extension deactivated');
+}
