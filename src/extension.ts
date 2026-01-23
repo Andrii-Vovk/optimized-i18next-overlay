@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TranslationLoader } from './translationLoader';
 import { DecorationManager } from './decoration';
 import { logger } from './logger';
+import { initializeCommands, handleReload, handleShowLogs, handleInsertTFunction } from './commands';
 
 let decorationManager: DecorationManager | undefined;
 let translationLoader: TranslationLoader | undefined;
@@ -40,6 +41,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize decoration manager
   logger.debug('Initializing decoration manager...');
   decorationManager = new DecorationManager(translationLoader);
+
+  // Initialize command handlers
+  initializeCommands(translationLoader, decorationManager);
 
   // Event listeners
   const disposables: vscode.Disposable[] = [
@@ -88,24 +92,13 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     // Reload command
-    vscode.commands.registerCommand('i18nOverlay.reload', async () => {
-      logger.info('Manual reload command triggered');
-      try {
-        await translationLoader?.reload();
-        logger.info('Translations reloaded successfully');
-        throttleUpdateDecorations();
-        vscode.window.showInformationMessage('i18n translations reloaded');
-      } catch (error) {
-        logger.error('Failed to reload translations:', error);
-        vscode.window.showErrorMessage('Failed to reload translations. Check output for details.');
-      }
-    }),
+    vscode.commands.registerCommand('i18nOverlay.reload', handleReload),
 
     // Show output channel command
-    vscode.commands.registerCommand('i18nOverlay.showLogs', () => {
-      logger.showOutputChannel();
-      logger.info('Output channel opened');
-    }),
+    vscode.commands.registerCommand('i18nOverlay.showLogs', handleShowLogs),
+
+    // Insert t function command
+    vscode.commands.registerCommand('i18nOverlay.insertTFunction', handleInsertTFunction),
   ];
 
   // Register all disposables

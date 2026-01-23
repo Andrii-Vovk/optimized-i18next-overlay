@@ -58,17 +58,23 @@
       {
         "command": "i18nOverlay.showLogs",
         "title": "Show Debug Logs"
+      },
+      {
+        "command": "i18nOverlay.insertTFunction",
+        "title": "Insert Translation Function"
       }
     ]
   },
   "scripts": {
     "vscode:prepublish": "bun run compile",
+    "build": "vsce package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.74.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^3.7.1"
   }
 }

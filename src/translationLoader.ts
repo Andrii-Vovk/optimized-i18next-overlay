@@ -350,4 +350,167 @@ export class TranslationLoader {
     await this.initialize();
     logger.info('Translations reloaded successfully');
   }
+
+  /**
+   * Get all translation keys for a locale
+   */
+  getAllKeys(locale: string): string[] {
+    const localeData = this.translations[locale];
+    if (!localeData) {
+      return [];
+    }
+    return Object.keys(localeData);
+  }
+
+  /**
+   * Get namespace for a translation key
+   * Returns the namespace if it's different from the default namespace, otherwise undefined
+   * Keys are stored with namespace prefix when useFileNameAsNamespace is enabled
+   */
+  getNamespaceForKey(key: string, locale: string): string | undefined {
+    const localeData = this.translations[locale];
+    if (!localeData) {
+      return undefined;
+    }
+
+    // Check if key exists as-is (might already include namespace)
+    if (localeData[key] !== undefined) {
+      // Key exists, check if it starts with a namespace prefix
+      const parts = key.split('.');
+      if (parts.length > 1) {
+        const possibleNamespace = parts[0];
+        const namespaces = this.getAvailableNamespaces(locale);
+        
+        // Check if first part is a known namespace (not the default)
+        if (namespaces.includes(possibleNamespace) && possibleNamespace !== this.defaultNamespace) {
+          return possibleNamespace;
+        }
+      }
+      // Key exists but doesn't have a non-default namespace prefix
+      return undefined;
+    }
+
+    // Key doesn't exist, might need to check with namespaces
+    const namespaces = this.getAvailableNamespaces(locale);
+    for (const ns of namespaces) {
+      if (ns !== this.defaultNamespace) {
+        // Check if key exists with this namespace prefix
+        if (localeData[`${ns}.${key}`] !== undefined) {
+          return ns;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Extract key without namespace prefix
+   * If key is "namespace.labels.title" and namespace is "namespace", returns "labels.title"
+   */
+  getKeyWithoutNamespace(key: string, namespace?: string): string {
+    if (!namespace) {
+      return key;
+    }
+    
+    const prefix = `${namespace}.`;
+    if (key.startsWith(prefix)) {
+      return key.substring(prefix.length);
+    }
+    
+    return key;
+  }
+
+  /**
+   * Extract interpolated variables from a translation value
+   * Detects patterns like {{variable}} or {variable}
+   */
+  extractInterpolations(value: string): string[] {
+    if (typeof value !== 'string') {
+      return [];
+    }
+
+    // Match {{variable}} or {variable} patterns
+    const interpolationPattern = /\{\{?(\w+)\}?\}/g;
+    const variables = new Set<string>();
+    let match;
+
+    while ((match = interpolationPattern.exec(value)) !== null) {
+      variables.add(match[1]);
+    }
+
+    return Array.from(variables);
+  }
+
+  /**
+   * Get translation info including namespace and interpolations
+   */
+  getTranslationInfo(key: string, locale: string): {
+    value: string | undefined;
+    namespace: string | undefined;
+    interpolations: string[];
+    keyWithoutNamespace: string;
+  } {
+    const localeData = this.translations[locale];
+    if (!localeData) {
+      return {
+        value: undefined,
+        namespace: undefined,
+        interpolations: [],
+        keyWithoutNamespace: key
+      };
+    }
+
+    // First, check if key exists as-is (might include namespace)
+    let value = localeData[key];
+    let namespace: string | undefined;
+    let keyWithoutNamespace = key;
+
+    if (value !== undefined) {
+      // Key exists, check if it has a namespace prefix
+      const parts = key.split('.');
+      if (parts.length > 1) {
+        const possibleNamespace = parts[0];
+        const namespaces = this.getAvailableNamespaces(locale);
+        
+        if (namespaces.includes(possibleNamespace) && possibleNamespace !== this.defaultNamespace) {
+          namespace = possibleNamespace;
+          keyWithoutNamespace = parts.slice(1).join('.');
+        }
+      }
+    } else {
+      // Key doesn't exist, try to find it with namespaces
+      const namespaces = this.getAvailableNamespaces(locale);
+      for (const ns of namespaces) {
+        if (ns !== this.defaultNamespace) {
+          const fullKey = `${ns}.${key}`;
+          if (localeData[fullKey] !== undefined) {
+            value = localeData[fullKey];
+            namespace = ns;
+            keyWithoutNamespace = key;
+            break;
+          }
+        }
+      }
+      
+      // If still not found, try default namespace
+      if (value === undefined && this.defaultNamespace) {
+        const fullKey = `${this.defaultNamespace}.${key}`;
+        if (localeData[fullKey] !== undefined) {
+          value = localeData[fullKey];
+          // Don't set namespace for default namespace
+          keyWithoutNamespace = key;
+        }
+      }
+    }
+
+    const interpolations = (typeof value === 'string') ? this.extractInterpolations(value) : [];
+
+    return {
+      value: typeof value === 'string' ? value : undefined,
+      namespace,
+      interpolations,
+      keyWithoutNamespace
+    };
+  }
 }
