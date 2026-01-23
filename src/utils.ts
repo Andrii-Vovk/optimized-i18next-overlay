@@ -4,20 +4,33 @@
 
 /**
  * Convert a translation key to property access format
- * e.g., "labels.tooltip-label" -> "$.labels.['tooltip-label']"
+ * e.g., "labels.tooltip-label" -> "$.labels['tooltip-label']"
  */
 export function keyToPropertyAccess(key: string): string {
-  const parts = key.split('.');
-  const accessParts = parts.map((part, index) => {
-    // Check if part needs bracket notation (contains special chars or starts with number)
-    if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(part)) {
+  // Filter out empty parts (handles keys with leading/trailing dots or double dots)
+  const parts = key.split('.').filter(part => part.length > 0);
+  
+  if (parts.length === 0) {
+    // Fallback for empty key
+    return '$';
+  }
+  
+  const accessParts: string[] = [];
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const isFirst = i === 0;
+    const isValidIdentifier = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(part);
+    
+    if (isValidIdentifier) {
       // Valid identifier, use dot notation
-      return index === 0 ? `$.${part}` : `.${part}`;
+      accessParts.push(isFirst ? `$.${part}` : `.${part}`);
     } else {
-      // Needs bracket notation - use dot before bracket to match example format
-      return index === 0 ? `$.['${part}']` : `.['${part}']`;
+      // Needs bracket notation - no dot before bracket
+      accessParts.push(isFirst ? `$['${part}']` : `['${part}']`);
     }
-  });
+  }
+  
   return accessParts.join('');
 }
 
@@ -25,7 +38,13 @@ export function keyToPropertyAccess(key: string): string {
  * Format t function call with options
  */
 export function formatTFunction(key: string, namespace?: string, interpolations: string[] = []): string {
-  const propertyAccess = keyToPropertyAccess(key);
+  // Ensure key is not empty and trim it
+  const trimmedKey = key.trim();
+  if (!trimmedKey) {
+    throw new Error('Translation key cannot be empty');
+  }
+  
+  const propertyAccess = keyToPropertyAccess(trimmedKey);
   const options: string[] = [];
   
   if (namespace && namespace !== 'common') {

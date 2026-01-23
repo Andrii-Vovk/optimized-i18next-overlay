@@ -468,14 +468,15 @@ export class TranslationLoader {
 
     if (value !== undefined) {
       // Key exists, check if it has a namespace prefix
-      const parts = key.split('.');
+      const parts = key.split('.').filter(p => p.length > 0); // Filter out empty parts
       if (parts.length > 1) {
         const possibleNamespace = parts[0];
         const namespaces = this.getAvailableNamespaces(locale);
         
         if (namespaces.includes(possibleNamespace) && possibleNamespace !== this.defaultNamespace) {
           namespace = possibleNamespace;
-          keyWithoutNamespace = parts.slice(1).join('.');
+          const remainingParts = parts.slice(1);
+          keyWithoutNamespace = remainingParts.length > 0 ? remainingParts.join('.') : key;
         }
       }
     } else {
