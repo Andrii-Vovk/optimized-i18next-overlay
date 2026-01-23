@@ -17,6 +17,7 @@ import { logger } from './logger';
  */
 export class DecorationManager {
   private decorationType: TextEditorDecorationType;
+  private hideContentType: TextEditorDecorationType;
   private translationLoader: TranslationLoader;
   private currentEditor: TextEditor | undefined;
 
@@ -25,9 +26,15 @@ export class DecorationManager {
 
     // Create decoration type for overlay text (inlay hint)
     this.decorationType = window.createTextEditorDecorationType({
-      after: {
-        margin: '0 0 0 1em',
+      before: {
+        margin: '0 0.1em 0 0',
       },
+    });
+
+    // Create decoration type to hide content using i18n-ally's hack
+    // Injecting 'display: none;' in textDecoration to actually collapse the text
+    this.hideContentType = window.createTextEditorDecorationType({
+      textDecoration: 'none; display: none;', // a hack to inject custom style
     });
   }
 
@@ -71,16 +78,78 @@ export class DecorationManager {
     const delimiter = config.get<string>('annotationDelimiter', ' → ');
     logger.debug('Decoration config', { locale, delimiter, keyCount: keys.length });
 
+    // Get current selection/cursor position
+    const selection = activeEditor.selection;
+    const cursorOffset = document.offsetAt(selection.active);
+
     // Create decorations
     const decorations: DecorationOptions[] = [];
+    const hideDecorations: DecorationOptions[] = [];
     let foundCount = 0;
     let missingCount = 0;
 
     for (const detectedKey of keys) {
-      const range = new Range(
-        document.positionAt(detectedKey.start),
-        document.positionAt(detectedKey.end)
-      );
+      // Check if cursor is inside this function call
+      // If cursor is within the range, skip decorations to show original text
+      const isCursorInside = cursorOffset >= detectedKey.start && cursorOffset <= detectedKey.end;
+      
+      if (isCursorInside) {
+        logger.debug('Cursor inside function call, skipping decorations', {
+          key: detectedKey.key,
+          cursorOffset,
+          start: detectedKey.start,
+          end: detectedKey.end
+        });
+        continue; // Skip this key - show original text
+      }
+      // Position the overlay right after the opening parenthesis (e.g., t(...))
+      // If openingParenPos is available, use it; otherwise fall back to start position
+      const openingParenPos = detectedKey.openingParenPos !== undefined 
+        ? detectedKey.openingParenPos
+        : detectedKey.start;
+      
+      // If multiline, don't hide anything, just show hint after content
+      // Otherwise, hide only the part after => (keep ($) => visible)
+      let overlayPosition: number;
+      let overlayRange: Range;
+      
+      if (detectedKey.isMultiline) {
+        // For multiline: show hint after the content (at the end)
+        overlayPosition = detectedKey.end;
+        overlayRange = new Range(
+          document.positionAt(overlayPosition),
+          document.positionAt(overlayPosition)
+        );
+      } else {
+        // For single line: show hint right after => + 1 space
+        overlayPosition = detectedKey.arrowPos !== undefined
+          ? detectedKey.arrowPos + 1 // Add 1 space after =>
+          : openingParenPos + 1;
+        overlayRange = new Range(
+          document.positionAt(overlayPosition),
+          document.positionAt(overlayPosition)
+        );
+        
+        // Hide only the part after => (the property access)
+        // Start hiding from after the space following =>
+        if (detectedKey.arrowPos !== undefined && detectedKey.arrowFunctionEndPos !== undefined) {
+          const hideStart = detectedKey.arrowPos + 1; // Start after => and space
+          const hideEnd = detectedKey.arrowFunctionEndPos;
+          
+          if (hideStart < hideEnd) {
+            const hideRange = new Range(
+              document.positionAt(hideStart),
+              document.positionAt(hideEnd)
+            );
+            hideDecorations.push({ range: hideRange });
+            logger.debug('Hiding property access after =>', { 
+              hideStart, 
+              hideEnd,
+              arrowPos: detectedKey.arrowPos
+            });
+          }
+        }
+      }
 
       // Get translation (explicit namespace from code takes precedence)
       // If no explicit namespace, the key may already include file-based namespace
@@ -95,19 +164,29 @@ export class DecorationManager {
         namespace: detectedKey.namespace,
         locale, 
         found: !!translation,
-        translation: translation?.substring(0, 50) 
+        translation: translation?.substring(0, 50),
+        openingParenPos,
+        arrowPos: detectedKey.arrowPos,
+        isMultiline: detectedKey.isMultiline,
+        overlayPosition
       });
 
-      // Add overlay text (inlay hint) - no styling changes to original text
+      // Add overlay text (inlay hint) - shows translation instead of arrow function
+      // Use 'before' to insert the translation right after the opening paren
+      // Styled with muted color, background, and border (using CSS string like i18n-ally)
       if (translation) {
         foundCount++;
+        // Use a more muted color - descriptionForeground is already muted, use it for both text and border
         decorations.push({
-          range,
+          range: overlayRange,
           renderOptions: {
-            after: {
-              contentText: `${delimiter}${translation}`,
+            before: {
+              contentText: `${delimiter}${translation} `,
               color: new ThemeColor('descriptionForeground'),
-              fontStyle: 'italic',
+              fontStyle: 'normal',
+              backgroundColor: new ThemeColor('editor.background'),
+              // Border uses CSS variable for the same color as text
+              border: '0.5px solid var(--vscode-descriptionForeground); border-radius: 2px; padding: 1px 3px;',
             },
           },
         });
@@ -115,12 +194,15 @@ export class DecorationManager {
         missingCount++;
         // Show missing indicator
         decorations.push({
-          range,
+          range: overlayRange,
           renderOptions: {
-            after: {
-              contentText: `${delimiter}[missing]`,
+            before: {
+              contentText: `${delimiter}[missing] `,
               color: new ThemeColor('errorForeground'),
-              fontStyle: 'italic',
+              fontStyle: 'normal',
+              backgroundColor: new ThemeColor('editor.background'),
+              // Border uses CSS variable for the same color as text
+              border: '0.5px solid var(--vscode-errorForeground); border-radius: 2px; padding: 1px 3px;',
             },
           },
         });
@@ -132,10 +214,12 @@ export class DecorationManager {
       total: keys.length,
       found: foundCount,
       missing: missingCount,
-      decorations: decorations.length
+      decorations: decorations.length,
+      hideDecorations: hideDecorations.length
     });
     
     activeEditor.setDecorations(this.decorationType, decorations);
+    activeEditor.setDecorations(this.hideContentType, hideDecorations);
   }
 
   /**
@@ -146,6 +230,7 @@ export class DecorationManager {
     if (targetEditor) {
       logger.debug('Clearing decorations', { fileName: targetEditor.document.fileName });
       targetEditor.setDecorations(this.decorationType, []);
+      targetEditor.setDecorations(this.hideContentType, []);
     }
   }
 
@@ -154,5 +239,6 @@ export class DecorationManager {
    */
   dispose(): void {
     this.decorationType.dispose();
+    this.hideContentType.dispose();
   }
 }

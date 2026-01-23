@@ -7,6 +7,10 @@ export interface DetectedKey {
   start: number;
   end: number;
   fullMatch: string;
+  openingParenPos?: number; // Position of the opening parenthesis after function name (e.g., t(...))
+  arrowFunctionEndPos?: number; // Position where the arrow function ends (before comma or closing paren)
+  arrowPos?: number; // Position of the => arrow
+  isMultiline?: boolean; // Whether the lambda spans multiple lines
 }
 
 /**
@@ -69,6 +73,7 @@ export class KeyDetector {
       
       // Extract the full accessor (handle bracket notation with nested brackets)
       let accessor: string;
+      let arrowFunctionEndPos: number | undefined;
       if (accessorPrefix.startsWith('.')) {
         // Dot notation: extract until comma or closing paren
         const dotStart = accessorStart + 1;
@@ -77,6 +82,7 @@ export class KeyDetector {
           dotEnd++;
         }
         accessor = '.' + text.substring(dotStart, dotEnd);
+        arrowFunctionEndPos = dotEnd; // End of the property access
       } else if (accessorPrefix === '[') {
         // Bracket notation: find matching closing bracket
         const bracketStart = accessorStart + 1;
@@ -86,6 +92,7 @@ export class KeyDetector {
           continue;
         }
         accessor = text.substring(accessorStart, bracketEnd + 1);
+        arrowFunctionEndPos = bracketEnd + 1; // After the closing bracket
       } else {
         continue;
       }
@@ -97,7 +104,22 @@ export class KeyDetector {
         continue;
       }
       
-      const { start, end, argsText } = callInfo;
+      const { start, end, argsText, openingParenPos } = callInfo;
+      
+      // Find the position of => in the arrow function
+      // Look for => after the opening paren
+      const arrowMatch = argsText.match(/=>/);
+      const arrowPos = arrowMatch 
+        ? openingParenPos + 1 + argsText.indexOf('=>') + 2 // +2 to get position after '=>'
+        : undefined;
+      
+      // Check if lambda (arrow function) spans multiple lines
+      // Lambda starts at arrowStart and ends at arrowFunctionEndPos
+      const lambdaStartLine = document.positionAt(arrowStart).line;
+      const lambdaEndLine = arrowFunctionEndPos !== undefined
+        ? document.positionAt(arrowFunctionEndPos).line
+        : document.positionAt(arrowStart).line;
+      const isMultiline = lambdaStartLine !== lambdaEndLine;
       
       // Extract namespace from the full arguments text
       const namespaceMatch = argsText.match(this.NAMESPACE_PATTERN);
@@ -106,6 +128,7 @@ export class KeyDetector {
       logger.debug('Found function call', { 
         start,
         end,
+        openingParenPos,
         namespace,
         argsText: argsText.substring(0, 100)
       });
@@ -153,6 +176,10 @@ export class KeyDetector {
           start,
           end: end + 1,
           fullMatch,
+          openingParenPos,
+          arrowFunctionEndPos,
+          arrowPos,
+          isMultiline,
         };
         keys.push(detectedKey);
         logger.debug('Detected key', detectedKey);
@@ -171,9 +198,9 @@ export class KeyDetector {
 
   /**
    * Find the function call boundaries starting from an arrow function position
-   * Returns the start and end positions of the function call, plus the arguments text
+   * Returns the start and end positions of the function call, plus the arguments text and opening paren position
    */
-  private static findFunctionCallBounds(text: string, arrowPos: number): { start: number; end: number; argsText: string } | null {
+  private static findFunctionCallBounds(text: string, arrowPos: number): { start: number; end: number; argsText: string; openingParenPos: number } | null {
     // Work backwards to find the opening parenthesis
     let pos = arrowPos - 1;
     let parenDepth = 0;
@@ -229,7 +256,8 @@ export class KeyDetector {
     return {
       start: funcStart,
       end: callEnd,
-      argsText
+      argsText,
+      openingParenPos: callStart
     };
   }
 

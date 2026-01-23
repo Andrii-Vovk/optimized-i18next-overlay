@@ -63,6 +63,17 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
 
+    // Selection/cursor changed - update decorations to show/hide based on cursor position
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (e.textEditor === vscode.window.activeTextEditor) {
+        logger.debug('Selection changed', { 
+          fileName: e.textEditor.document.fileName,
+          selection: e.selections[0] 
+        });
+        throttleUpdateDecorations();
+      }
+    }),
+
     // Configuration changed
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('i18nOverlay')) {
