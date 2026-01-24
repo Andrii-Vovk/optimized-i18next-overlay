@@ -52,6 +52,7 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
       });
 
       const defaultLocale = config.get<string>("defaultLocale", "en");
+      const maxHintLength = config.get<number>("maxHintLength", 50);
       const allLocales = this.translationLoader.getLocales();
 
       // Get translations for all locales
@@ -119,9 +120,35 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
       for (const { locale, value } of translations) {
         const localeLabel = locale === defaultLocale ? `**${locale}** (default)` : `**${locale}**`;
         
+        // Create command URIs (used for both existing and missing translations)
+        const commandArgs = encodeURIComponent(
+          JSON.stringify({
+            key: detectedKey.key,
+            locale: locale,
+            namespace: detectedKey.namespace || undefined,
+            sourceText: sourceText,
+          })
+        );
+        const commandUri = `command:i18nOverlay.addTranslationToLocale?${commandArgs}`;
+        
+        const goToCommandArgs = encodeURIComponent(
+          JSON.stringify({
+            key: detectedKey.key,
+            locale: locale,
+            namespace: detectedKey.namespace || undefined,
+          })
+        );
+        const goToCommandUri = `command:i18nOverlay.goToTranslation?${goToCommandArgs}`;
+        
         if (value) {
-          // Translation exists - show it with globe icon
-          const escapedValue = value
+          // Translation exists - truncate if needed
+          let displayValue = value;
+          if (maxHintLength > 0 && value.length > maxHintLength) {
+            displayValue = value.substring(0, maxHintLength) + "…";
+          }
+          
+          // Escape markdown special characters
+          const escapedValue = displayValue
             .replace(/\\/g, "\\\\")
             .replace(/\*/g, "\\*")
             .replace(/_/g, "\\_")
@@ -129,35 +156,14 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
             .replace(/\[/g, "\\[")
             .replace(/\]/g, "\\]");
           
-          // Create command URI to add/update translation for this locale
-          const commandArgs = encodeURIComponent(
-            JSON.stringify({
-              key: detectedKey.key,
-              locale: locale,
-              namespace: detectedKey.namespace || undefined,
-              sourceText: sourceText,
-            })
-          );
-          const commandUri = `command:i18nOverlay.addTranslationToLocale?${commandArgs}`;
-          
+          // Show buttons before translation text
           markdown.appendMarkdown(
-            `${localeLabel}: ${escapedValue} [🌐 Translate](${commandUri} "Add/update translation for ${locale}")\n\n`
+            `${localeLabel}: [📄](${goToCommandUri}) [🌐](${commandUri}) ${escapedValue}\n\n`
           );
         } else {
-          // Translation missing - show with globe icon that opens Google Translate
-          // Create command URI to add translation for this locale
-          const commandArgs = encodeURIComponent(
-            JSON.stringify({
-              key: detectedKey.key,
-              locale: locale,
-              namespace: detectedKey.namespace || undefined,
-              sourceText: sourceText,
-            })
-          );
-          const commandUri = `command:i18nOverlay.addTranslationToLocale?${commandArgs}`;
-          
+          // Translation missing - show buttons before "missing" text
           markdown.appendMarkdown(
-            `${localeLabel}: *missing* [🌐 Translate](${commandUri} "Add translation for ${locale}")\n\n`
+            `${localeLabel}: [📄](${goToCommandUri}) [🌐](${commandUri}) *missing*\n\n`
           );
         }
       }

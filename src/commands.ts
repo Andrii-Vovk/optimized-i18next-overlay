@@ -491,3 +491,157 @@ export async function handleAddTranslationToLocale(args?: {
     );
   }
 }
+
+/**
+ * Command handler for navigating to translation in locale file
+ */
+export async function handleGoToTranslation(args?: {
+  key: string;
+  locale: string;
+  namespace?: string;
+}): Promise<void> {
+  if (!args || !args.key || !args.locale) {
+    vscode.window.showErrorMessage("Missing required parameters: key and locale");
+    return;
+  }
+
+  if (!translationLoader) {
+    vscode.window.showErrorMessage("Translation loader not initialized");
+    return;
+  }
+
+  const loader: TranslationLoader = translationLoader;
+  const { key, locale, namespace: providedNamespace } = args;
+
+  // Get configuration
+  const config = vscode.workspace.getConfiguration("i18nOverlay");
+  const useFileNameAsNamespace = config.get<boolean>("useFileNameAsNamespace", true);
+  const defaultNamespace = config.get<string>("defaultNamespace", "common");
+
+  // Determine the namespace to use
+  const finalNamespace: string | undefined = providedNamespace
+    ? providedNamespace
+    : !useFileNameAsNamespace && defaultNamespace
+    ? defaultNamespace
+    : undefined;
+
+  // Get locale files
+  const files = loader.getLocaleFiles(locale);
+  if (files.length === 0) {
+    vscode.window.showWarningMessage(`No locale file found for ${locale}`);
+    return;
+  }
+
+  // Find the appropriate file based on namespace
+  let targetFile: string | undefined;
+  if (finalNamespace && useFileNameAsNamespace) {
+    // Access private property via type assertion (we know it exists)
+    const fileNamespaces = (loader as any).fileNamespaces as Map<string, any>;
+    const matchingFile = files.find((f) => {
+      const info = fileNamespaces?.get(f);
+      return info?.namespace === finalNamespace;
+    });
+    if (matchingFile) {
+      targetFile = matchingFile;
+    }
+  }
+
+  // If no namespace-specific file found, use default
+  if (!targetFile) {
+    targetFile = loader.getDefaultLocaleFile(locale) || files[0];
+  }
+
+  if (!targetFile) {
+    vscode.window.showErrorMessage(`Could not determine file path for locale: ${locale}`);
+    return;
+  }
+
+  try {
+    // Open the file in a new tab
+    const document = await vscode.workspace.openTextDocument(targetFile);
+    const editor = await vscode.window.showTextDocument(document, {
+      viewColumn: vscode.ViewColumn.Beside, // Open in a new column/tab
+      preserveFocus: false, // Focus the new editor
+    });
+
+    // Read the file content to find the key
+    const content = document.getText();
+    let data: any;
+    try {
+      data = JSON.parse(content);
+    } catch (parseError) {
+      vscode.window.showErrorMessage(`Failed to parse ${locale} file`);
+      return;
+    }
+
+    // Build the key path to search for (considering namespace)
+    const keyParts = key.split(".");
+    let searchPath: string[];
+
+    // Check if namespace should be part of the path
+    const fileNamespaces = (loader as any).fileNamespaces as Map<string, any>;
+    const fileInfo = fileNamespaces?.get(targetFile);
+    if (fileInfo?.namespace && fileInfo.namespace === finalNamespace) {
+      // Namespace matches file, key should be without namespace prefix
+      searchPath = keyParts;
+    } else if (finalNamespace && !fileInfo?.namespace) {
+      // File has no namespace but we have one, prepend it
+      searchPath = [finalNamespace, ...keyParts];
+    } else {
+      searchPath = keyParts;
+    }
+
+    // Navigate through the JSON structure to find the key
+    let current: any = data;
+    let found = true;
+    for (const part of searchPath) {
+      if (current && typeof current === "object" && part in current) {
+        current = current[part];
+      } else {
+        found = false;
+        break;
+      }
+    }
+
+    if (!found) {
+      vscode.window.showWarningMessage(`Translation key "${key}" not found in ${locale} file`);
+      return;
+    }
+
+    // Find the key in the file content
+    // Search for the last part of the key path
+    const searchKey = searchPath[searchPath.length - 1];
+    const searchText = `"${searchKey}"`;
+
+    // Try to find the key in the file
+    let position: vscode.Position | undefined;
+    const lines = content.split("\n");
+
+    // Search for the key
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const keyIndex = line.indexOf(searchText);
+      if (keyIndex !== -1) {
+        // Found a potential match, use the first one (could be improved with better heuristics)
+        position = new vscode.Position(i, keyIndex);
+        break;
+      }
+    }
+
+    if (position) {
+      // Move cursor and reveal the position
+      editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+      logger.info("Navigated to translation", { key, locale, file: targetFile, position });
+    } else {
+      // Fallback: just open the file
+      vscode.window.showInformationMessage(`Opened ${locale} file. Key "${key}" may be nested.`);
+      logger.info("Opened translation file", { key, locale, file: targetFile });
+    }
+  } catch (error) {
+    logger.error("Failed to navigate to translation:", error);
+    vscode.window.showErrorMessage(
+      `Failed to open translation file: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
