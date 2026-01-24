@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { TranslationLoader } from './translationLoader';
 import { DecorationManager } from './decoration';
 import { logger } from './logger';
-import { initializeCommands, handleReload, handleShowLogs, handleInsertTFunction } from './commands';
+import { initializeCommands, handleReload, handleShowLogs, handleInsertTFunction, handleExtractStringToLocale, handleAddMissingTranslation, handleAddTranslationToLocale } from './commands';
+import { TranslationHoverProvider } from './hover';
 
 let decorationManager: DecorationManager | undefined;
 let translationLoader: TranslationLoader | undefined;
@@ -99,6 +100,18 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Insert t function command
     vscode.commands.registerCommand('i18nOverlay.insertTFunction', handleInsertTFunction),
+
+    // Extract string to locale command
+    vscode.commands.registerCommand('i18nOverlay.extractStringToLocale', handleExtractStringToLocale),
+
+    // Add missing translation command
+    vscode.commands.registerCommand('i18nOverlay.addMissingTranslation', handleAddMissingTranslation),
+
+    // Add translation to specific locale command
+    vscode.commands.registerCommand('i18nOverlay.addTranslationToLocale', handleAddTranslationToLocale),
+
+    // Register hover provider
+    vscode.languages.registerHoverProvider('*', new TranslationHoverProvider(translationLoader)),
   ];
 
   // Register all disposables

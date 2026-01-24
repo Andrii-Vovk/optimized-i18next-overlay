@@ -35,7 +35,7 @@
         },
         "i18nOverlay.annotationDelimiter": {
           "type": "string",
-          "default": "/ ",
+          "default": "🌐 ",
           "description": "Delimiter between key and translation"
         },
         "i18nOverlay.useFileNameAsNamespace": {
@@ -47,21 +47,43 @@
           "type": "string",
           "default": "common",
           "description": "Default namespace to use when no namespace is provided in code or file name"
+        },
+        "i18nOverlay.maxHintLength": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum length for inlay hint text. Text longer than this will be truncated with ellipsis. Set to 0 to disable truncation."
+        },
+        "i18nOverlay.allowedFileTypes": {
+          "type": "array",
+          "default": ["javascript", "typescript", "javascriptreact", "typescriptreact"],
+          "description": "File types (language IDs) where translation lambda detection should be active. Set to empty array to enable for all file types."
         }
       }
     },
     "commands": [
       {
         "command": "i18nOverlay.reload",
-        "title": "Reload Translations"
+        "title": "i18n Overlay: Reload Translations"
       },
       {
         "command": "i18nOverlay.showLogs",
-        "title": "Show Debug Logs"
+        "title": "i18n Overlay: Show Debug Logs"
       },
       {
         "command": "i18nOverlay.insertTFunction",
-        "title": "Insert Translation Function"
+        "title": "i18n Overlay: Insert Translation Function"
+      },
+      {
+        "command": "i18nOverlay.extractStringToLocale",
+        "title": "i18n Overlay: Extract String to Locale Files"
+      },
+      {
+        "command": "i18nOverlay.addMissingTranslation",
+        "title": "i18n Overlay: Add Missing Translation"
+      },
+      {
+        "command": "i18nOverlay.addTranslationToLocale",
+        "title": "i18n Overlay: Add Translation to Locale"
       }
     ]
   },

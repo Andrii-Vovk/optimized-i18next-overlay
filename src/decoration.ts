@@ -65,6 +65,18 @@ export class DecorationManager {
       return;
     }
 
+    // Check if file type is allowed
+    const allowedFileTypes = config.get<string[]>('allowedFileTypes', ['javascript', 'typescript', 'javascriptreact', 'typescriptreact']);
+    const languageId = document.languageId;
+    
+    // If allowedFileTypes is empty, allow all file types
+    // Otherwise, check if current language is in the allowed list
+    if (allowedFileTypes.length > 0 && !allowedFileTypes.includes(languageId)) {
+      logger.debug('File type not allowed, clearing decorations', { languageId, allowedFileTypes });
+      this.clearDecorations(activeEditor);
+      return;
+    }
+
     // Detect keys in document
     const keys = KeyDetector.getKeys(document);
     if (keys.length === 0) {
@@ -76,7 +88,8 @@ export class DecorationManager {
     // Get locale
     const locale = config.get<string>('defaultLocale', 'en');
     const delimiter = config.get<string>('annotationDelimiter', ' → ');
-    logger.debug('Decoration config', { locale, delimiter, keyCount: keys.length });
+    const maxHintLength = config.get<number>('maxHintLength', 50);
+    logger.debug('Decoration config', { locale, delimiter, maxHintLength, keyCount: keys.length });
 
     // Get current selection/cursor position
     const selection = activeEditor.selection;
@@ -176,12 +189,17 @@ export class DecorationManager {
       // Styled with muted color, background, and border (using CSS string like i18n-ally)
       if (translation) {
         foundCount++;
+        // Truncate translation if it exceeds max length
+        let displayText = translation;
+        if (maxHintLength > 0 && translation.length > maxHintLength) {
+          displayText = translation.substring(0, maxHintLength) + '…';
+        }
         // Use a more muted color - descriptionForeground is already muted, use it for both text and border
         decorations.push({
           range: overlayRange,
           renderOptions: {
             before: {
-              contentText: `${delimiter}${translation} `,
+              contentText: `${delimiter}${displayText} `,
               color: new ThemeColor('descriptionForeground'),
               fontStyle: 'normal',
               backgroundColor: new ThemeColor('editor.background'),
