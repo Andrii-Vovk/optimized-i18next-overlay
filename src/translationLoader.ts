@@ -70,21 +70,24 @@ export class TranslationLoader {
     for (const folder of workspaceFolders) {
       for (const pattern of patterns) {
         logger.debug("Searching for files", { folder: folder.name, pattern });
-        const files = await workspace.findFiles(new vscode.RelativePattern(folder, pattern), null, 100);
+
+        const files = await workspace.findFiles(
+          new vscode.RelativePattern(folder, pattern),
+          "**/node_modules/**"
+        );
 
         logger.debug(`Found ${files.length} file(s) matching pattern`, {
           pattern,
           count: files.length,
           files: files.map((f) => f.fsPath),
         });
-        totalFiles += files.length;
 
+        totalFiles += files.length;
         for (const uri of files) {
           await this.loadTranslationFile(uri.fsPath);
         }
       }
     }
-
     logger.info(`Processed ${totalFiles} translation file(s)`);
   }
 
