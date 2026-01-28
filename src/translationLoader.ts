@@ -71,10 +71,7 @@ export class TranslationLoader {
       for (const pattern of patterns) {
         logger.debug("Searching for files", { folder: folder.name, pattern });
 
-        const files = await workspace.findFiles(
-          new vscode.RelativePattern(folder, pattern),
-          "**/node_modules/**"
-        );
+        const files = await workspace.findFiles(new vscode.RelativePattern(folder, pattern), "**/node_modules/**");
 
         logger.debug(`Found ${files.length} file(s) matching pattern`, {
           pattern,
@@ -246,49 +243,22 @@ export class TranslationLoader {
 
     let value: string | undefined;
 
-    if (explicitNamespace) {
+    if (explicitNamespace && !this.useFileNameAsNamespace) {
       // Explicit namespace from code takes precedence
-      const fullKey = `${explicitNamespace}.${key}`;
-      value = this.lookupKey(localeData, fullKey, key);
+      const fullKey = `${explicitNamespace}..${key}`;
+      value = this.lookupKey(localeData, fullKey);
       logger.debug("Lookup with explicit namespace", { key, explicitNamespace, fullKey, found: value !== undefined });
-    } else if (this.useFileNameAsNamespace) {
-      // Try key as-is first (in case it already includes namespace or file has no namespace)
-      value = this.lookupKey(localeData, key, key);
-
-      // If not found and useFileNameAsNamespace is enabled, try with file-based namespaces
-      if (value === undefined) {
-        const namespaces = this.getAvailableNamespaces(locale);
-        logger.debug("Trying file-based namespaces", { key, namespaces });
-
-        for (const ns of namespaces) {
-          const fullKey = `${ns}.${key}`;
-          value = this.lookupKey(localeData, fullKey, key);
-          if (value !== undefined) {
-            logger.debug("Found with file-based namespace", { key, namespace: ns, fullKey });
-            break;
-          }
-        }
-      }
-
-      // If still not found, try default namespace
-      if (value === undefined && this.defaultNamespace) {
-        const fullKey = `${this.defaultNamespace}.${key}`;
-        value = this.lookupKey(localeData, fullKey, key);
-        if (value !== undefined) {
-          logger.debug("Found with default namespace", { key, defaultNamespace: this.defaultNamespace, fullKey });
-        }
+    } else if (explicitNamespace && this.useFileNameAsNamespace) {
+      const fullKey = `${explicitNamespace}..${key}`;
+      value = this.lookupKey(localeData, fullKey);
+      if (value !== undefined) {
+        logger.debug("Found with file-based namespace", { key, namespace: explicitNamespace, fullKey });
       }
     } else {
-      // useFileNameAsNamespace is disabled, try key as-is first
-      value = this.lookupKey(localeData, key, key);
-
-      // If not found, try default namespace
-      if (value === undefined && this.defaultNamespace) {
-        const fullKey = `${this.defaultNamespace}.${key}`;
-        value = this.lookupKey(localeData, fullKey, key);
-        if (value !== undefined) {
-          logger.debug("Found with default namespace", { key, defaultNamespace: this.defaultNamespace, fullKey });
-        }
+      const fullKey = `${this.defaultNamespace}..${key}`;
+      value = this.lookupKey(localeData, fullKey);
+      if (value !== undefined) {
+        logger.debug("Found with default namespace", { key, defaultNamespace: this.defaultNamespace, fullKey });
       }
     }
 
@@ -314,13 +284,14 @@ export class TranslationLoader {
   /**
    * Lookup a key in locale data, trying exact match and partial matches
    */
-  private lookupKey(localeData: Record<string, any>, fullKey: string, originalKey: string): string | undefined {
+  private lookupKey(localeData: Record<string, any>, fullKey: string): string | undefined {
     let value = localeData[fullKey];
 
     if (value === undefined) {
       // Try to find partial matches (for nested keys)
       const keys = Object.keys(localeData);
-      const matchingKey = keys.find((k) => k === fullKey || k.endsWith(`.${originalKey}`) || k.endsWith(`.${fullKey}`));
+      const matchingKey = keys.find((k) => k === fullKey);
+
       if (matchingKey) {
         value = localeData[matchingKey];
       }

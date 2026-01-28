@@ -299,14 +299,12 @@ export async function handleAddMissingTranslation(args?: {
   const useFileNameAsNamespace = config.get<boolean>("useFileNameAsNamespace", true);
   const defaultNamespace = config.get<string>("defaultNamespace", "common");
 
-  // Determine the namespace to use based on configuration
-  // If namespace was explicitly provided from the code (detectedKey.namespace), use it
-  // Otherwise, respect the configuration settings
+  // Determine the namespace to use
+  // If namespace was explicitly provided from the code, ALWAYS use it (no fallbacks)
+  // Otherwise, ALWAYS use default namespace (no checking other namespaces)
   const finalNamespace: string | undefined = providedNamespace
     ? providedNamespace
-    : !useFileNameAsNamespace && defaultNamespace
-    ? defaultNamespace
-    : undefined;
+    : defaultNamespace;
 
   // Prompt for translation value
   const valueInput = await vscode.window.showInputBox({
@@ -400,12 +398,12 @@ export async function handleAddTranslationToLocale(args?: {
   const defaultNamespace = config.get<string>("defaultNamespace", "common");
   const defaultLocale = config.get<string>("defaultLocale", "en");
 
-  // Determine the namespace to use based on configuration
+  // Determine the namespace to use
+  // If namespace was explicitly provided, ALWAYS use it (no fallbacks)
+  // Otherwise, ALWAYS use default namespace (no checking other namespaces)
   const finalNamespace: string | undefined = providedNamespace
     ? providedNamespace
-    : !useFileNameAsNamespace && defaultNamespace
-    ? defaultNamespace
-    : undefined;
+    : defaultNamespace;
 
   // Get source text for translation if not provided
   let sourceTranslation = sourceText;

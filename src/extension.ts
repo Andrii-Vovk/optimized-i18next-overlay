@@ -46,6 +46,64 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize command handlers
   initializeCommands(translationLoader, decorationManager);
 
+  // Setup file watcher for locale files
+  let fileWatchers: vscode.FileSystemWatcher[] = [];
+  
+  const setupFileWatcher = () => {
+    const config = vscode.workspace.getConfiguration('i18nOverlay');
+    const patterns = config.get<string[]>('localeFiles', ['**/locales/**/*.json']);
+    
+    // Dispose existing watchers
+    fileWatchers.forEach(w => w.dispose());
+    fileWatchers = [];
+    
+    // Create file watchers for each pattern
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    
+    if (workspaceFolders) {
+      for (const folder of workspaceFolders) {
+        for (const pattern of patterns) {
+          const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(folder, pattern)
+          );
+          
+          // Watch for file changes, creation, and deletion
+          watcher.onDidChange(async (uri) => {
+            logger.info('Locale file changed, reloading translations', { file: uri.fsPath });
+            try {
+              await translationLoader?.reload();
+              throttleUpdateDecorations();
+            } catch (error) {
+              logger.error('Failed to reload translations after file change:', error);
+            }
+          });
+          
+          watcher.onDidCreate(async (uri) => {
+            logger.info('Locale file created, reloading translations', { file: uri.fsPath });
+            try {
+              await translationLoader?.reload();
+              throttleUpdateDecorations();
+            } catch (error) {
+              logger.error('Failed to reload translations after file creation:', error);
+            }
+          });
+          
+          watcher.onDidDelete(async (uri) => {
+            logger.info('Locale file deleted, reloading translations', { file: uri.fsPath });
+            try {
+              await translationLoader?.reload();
+              throttleUpdateDecorations();
+            } catch (error) {
+              logger.error('Failed to reload translations after file deletion:', error);
+            }
+          });
+          
+          fileWatchers.push(watcher);
+        }
+      }
+    }
+  };
+
   // Event listeners
   const disposables: vscode.Disposable[] = [
     // Active editor changed
@@ -86,6 +144,23 @@ export function activate(context: vscode.ExtensionContext) {
         translationLoader?.reload().then(() => {
           logger.debug('Translations reloaded after config change');
           throttleUpdateDecorations();
+          
+          // Recreate file watchers if locale file patterns changed
+          if (e.affectsConfiguration('i18nOverlay.localeFiles')) {
+            // Remove old watchers from disposables
+            const oldWatcherCount = fileWatchers.length;
+            fileWatchers.forEach(w => {
+              const index = disposables.indexOf(w);
+              if (index !== -1) disposables.splice(index, 1);
+            });
+            
+            // Create new watchers
+            setupFileWatcher();
+            
+            // Add new watchers to disposables and subscriptions
+            disposables.push(...fileWatchers);
+            context.subscriptions.push(...fileWatchers);
+          }
         }).catch((error) => {
           logger.error('Failed to reload translations:', error);
         });
@@ -116,6 +191,12 @@ export function activate(context: vscode.ExtensionContext) {
     // Register hover provider
     vscode.languages.registerHoverProvider('*', new TranslationHoverProvider(translationLoader)),
   ];
+
+  // Initialize file watchers (after disposables array is created)
+  setupFileWatcher();
+  
+  // Add file watchers to disposables
+  disposables.push(...fileWatchers);
 
   // Register all disposables
   context.subscriptions.push(...disposables);
