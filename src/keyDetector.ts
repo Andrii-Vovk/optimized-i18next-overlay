@@ -32,9 +32,9 @@ export class KeyDetector {
   
   /**
    * Regex to extract namespace from options object: { ns: 'namespace' } or {ns:'namespace'}
-   * Also handles multiline objects
+   * Used on the options object string only (not full args), so nested objects are not an issue.
    */
-  private static readonly NAMESPACE_PATTERN = /\{\s*[^}]*\bns\s*[:=]\s*['"`]([^'"`]+)['"`][^}]*\}/s;
+  private static readonly NAMESPACE_PATTERN = /\bns\s*[:=]\s*['"`]([^'"`]+)['"`]/;
   
   /**
    * Regex to extract key from function calls in bracket notation
@@ -71,31 +71,16 @@ export class KeyDetector {
         match: match[0]
       });
       
-      // Extract the full accessor (handle bracket notation with nested brackets)
-      let accessor: string;
-      let arrowFunctionEndPos: number | undefined;
-      if (accessorPrefix.startsWith('.')) {
-        // Dot notation: extract until comma or closing paren
-        const dotStart = accessorStart + 1;
-        let dotEnd = dotStart;
-        while (dotEnd < text.length && text[dotEnd] !== ',' && text[dotEnd] !== ')') {
-          dotEnd++;
-        }
-        accessor = '.' + text.substring(dotStart, dotEnd);
-        arrowFunctionEndPos = dotEnd; // End of the property access
-      } else if (accessorPrefix === '[') {
-        // Bracket notation: find matching closing bracket
-        const bracketStart = accessorStart + 1;
-        const bracketEnd = this.findMatchingBracket(text, bracketStart - 1);
-        if (bracketEnd === -1) {
-          logger.debug('Could not find matching closing bracket', { position: bracketStart });
-          continue;
-        }
-        accessor = text.substring(accessorStart, bracketEnd + 1);
-        arrowFunctionEndPos = bracketEnd + 1; // After the closing bracket
-      } else {
+      // Extract the full accessor chain: $['a'].b, $['a']['b'], $.a['b'], etc.
+      // accessorStart is the position of the first char of the accessor ('.' or '[')
+      if (accessorStart >= text.length) continue;
+
+      const parsed = this.parseAccessorChain(text, accessorStart);
+      if (!parsed) {
+        logger.debug('Could not parse accessor chain', { position: accessorStart });
         continue;
       }
+      const { key: accessorKey, endPos: arrowFunctionEndPos } = parsed;
       
       // Find the function call start (work backwards to find opening paren)
       const callInfo = this.findFunctionCallBounds(text, arrowStart);
@@ -121,9 +106,9 @@ export class KeyDetector {
         : document.positionAt(arrowStart).line;
       const isMultiline = lambdaStartLine !== lambdaEndLine;
       
-      // Extract namespace from the full arguments text
-      const namespaceMatch = argsText.match(this.NAMESPACE_PATTERN);
-      const namespace = namespaceMatch ? namespaceMatch[1] : undefined;
+      // Extract namespace from the options object (first top-level object after the arrow function)
+      const optionsStr = this.getOptionsObjectFromArgs(argsText);
+      const namespace = optionsStr ? (optionsStr.match(this.NAMESPACE_PATTERN)?.[1]) : undefined;
       
       logger.debug('Found function call', { 
         start,
@@ -133,40 +118,8 @@ export class KeyDetector {
         argsText: argsText.substring(0, 100)
       });
       
-      // Extract key from accessor
-      let key: string | null = null;
-      
-      if (accessor.startsWith('.')) {
-        // Dot notation: $.path.to.key
-        const propertyPath = accessor.substring(1); // Remove leading dot
-        key = this.parsePropertyPath(propertyPath);
-      } else if (accessor.startsWith('[') && accessor.endsWith(']')) {
-        // Bracket notation: $[expression]
-        const bracketContent = accessor.substring(1, accessor.length - 1); // Remove [ and ]
-        
-        // Check if it's a function call like pluralKey('key', ...)
-        const funcMatch = bracketContent.match(this.FUNCTION_KEY_PATTERN);
-        if (funcMatch) {
-          // Extract key from function call argument
-          key = funcMatch[2]; // The key string from the function call
-          logger.debug('Extracted key from function call in bracket', { 
-            bracketContent, 
-            functionName: funcMatch[1], 
-            key 
-          });
-        } else {
-          // Try to parse as a string literal or property access
-          // Handle cases like $['key'] or $["key"]
-          const stringMatch = bracketContent.match(/^['"]([^'"]+)['"]$/);
-          if (stringMatch) {
-            key = stringMatch[1];
-          } else {
-            // Try parsing as property path (might be a variable or expression)
-            key = this.parsePropertyPath(bracketContent);
-          }
-          logger.debug('Extracted key from bracket notation', { bracketContent, key });
-        }
-      }
+      // accessorKey is the full key path from parseAccessorChain (e.g. minimum-image-requirements.title)
+      const key = accessorKey;
       
       if (key) {
         const fullMatch = text.substring(start, end + 1);
@@ -184,7 +137,7 @@ export class KeyDetector {
         keys.push(detectedKey);
         logger.debug('Detected key', detectedKey);
       } else {
-        logger.warn('Failed to extract key from accessor', { accessor });
+        logger.warn('Failed to extract key from accessor', { position: accessorStart });
       }
     }
 
@@ -194,6 +147,50 @@ export class KeyDetector {
     });
 
     return keys;
+  }
+
+  /**
+   * Get the options object string from t(arrowFn, { ns: '...', ... }) args.
+   * Returns the first top-level object after the comma so nested t() options are not mixed in.
+   */
+  private static getOptionsObjectFromArgs(argsText: string): string | undefined {
+    let depth = 0;
+    let commaAt = -1;
+    for (let i = 0; i < argsText.length; i++) {
+      const c = argsText[i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if (depth === 0 && c === ',') {
+        commaAt = i;
+        break;
+      }
+    }
+    if (commaAt === -1) return undefined;
+    const afterComma = argsText.slice(commaAt + 1).trim();
+    if (afterComma[0] !== '{') return undefined;
+    let braceDepth = 0;
+    let end = -1;
+    for (let i = 0; i < afterComma.length; i++) {
+      const c = afterComma[i];
+      if (c === '{') {
+        braceDepth++;
+      } else if (c === '}') {
+        braceDepth--;
+        if (braceDepth === 0) {
+          end = i + 1;
+          break;
+        }
+      } else if ((c === '"' || c === "'" || c === '`') && braceDepth > 0) {
+        const q = c;
+        i++;
+        while (i < afterComma.length && afterComma[i] !== q) {
+          if (afterComma[i] === '\\') i++;
+          i++;
+        }
+      }
+    }
+    if (end === -1) return undefined;
+    return afterComma.slice(0, end);
   }
 
   /**
@@ -259,6 +256,70 @@ export class KeyDetector {
       argsText,
       openingParenPos: callStart
     };
+  }
+
+  /**
+   * Parse the full accessor chain after $ (e.g. ['a'].b, ['a']['b'], .a['b'])
+   * Returns the key path as dot-notation and the end position.
+   */
+  private static parseAccessorChain(
+    text: string,
+    startPos: number
+  ): { key: string; endPos: number } | null {
+    const parts: string[] = [];
+    let pos = startPos;
+
+    while (pos < text.length) {
+      const char = text[pos];
+      if (char === ',' || char === ')') break;
+      if (char === ' ' || char === '\n' || char === '\r' || char === '\t') {
+        pos++;
+        continue;
+      }
+
+      if (char === '.') {
+        pos++;
+        if (pos >= text.length) return null;
+        const next = text[pos];
+        if (next === '[') {
+          const bracketEnd = this.findMatchingBracket(text, pos);
+          if (bracketEnd === -1) return null;
+          const inner = text.substring(pos + 1, bracketEnd);
+          const strMatch = inner.match(/^['"]([^'"]*)['"]$/);
+          if (strMatch) parts.push(strMatch[1]);
+          else parts.push(inner.trim());
+          pos = bracketEnd + 1;
+        } else {
+          let end = pos;
+          while (end < text.length && /[\w$]/.test(text[end])) end++;
+          const ident = text.substring(pos, end);
+          if (ident) parts.push(ident);
+          pos = end;
+        }
+        continue;
+      }
+
+      if (char === '[') {
+        const bracketEnd = this.findMatchingBracket(text, pos);
+        if (bracketEnd === -1) return null;
+        const inner = text.substring(pos + 1, bracketEnd);
+        const funcMatch = inner.match(this.FUNCTION_KEY_PATTERN);
+        if (funcMatch) {
+          parts.push(funcMatch[2]);
+        } else {
+          const strMatch = inner.match(/^['"]([^'"]*)['"]$/);
+          if (strMatch) parts.push(strMatch[1]);
+          else parts.push(inner.trim());
+        }
+        pos = bracketEnd + 1;
+        continue;
+      }
+
+      pos++;
+    }
+
+    if (parts.length === 0) return null;
+    return { key: parts.join('.'), endPos: pos };
   }
 
   /**
@@ -329,8 +390,8 @@ export class KeyDetector {
         if (depth === 0) {
           return pos;
         }
-      } else if (char === '"' || char === "'") {
-        // Skip string literals
+      } else if (char === '"' || char === "'" || char === '`') {
+        // Skip string and template literals so ) inside them don't break nesting
         const quote = char;
         pos++;
         while (pos < text.length && text[pos] !== quote) {
@@ -407,17 +468,24 @@ export class KeyDetector {
   }
 
   /**
-   * Get key at a specific position
+   * Get key at a specific position.
+   * When nested t() calls overlap, returns the innermost key (smallest range containing the offset).
    */
   static getKeyAtPosition(document: TextDocument, offset: number): DetectedKey | undefined {
     logger.debug('Getting key at position', { fileName: document.fileName, offset });
     const keys = this.getKeys(document);
-    const key = keys.find(k => k.start <= offset && k.end >= offset);
-    if (key) {
-      logger.debug('Found key at position', { offset, key });
-    } else {
+    const containing = keys.filter(k => k.start <= offset && k.end >= offset);
+    if (containing.length === 0) {
       logger.debug('No key found at position', { offset });
+      return undefined;
     }
+    // Prefer the innermost key (smallest range)
+    const key = containing.reduce((best, k) => {
+      const bestLen = best.end - best.start;
+      const kLen = k.end - k.start;
+      return kLen < bestLen ? k : best;
+    });
+    logger.debug('Found key at position', { offset, key });
     return key;
   }
 }
