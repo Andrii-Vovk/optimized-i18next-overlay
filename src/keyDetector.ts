@@ -61,7 +61,10 @@ export class KeyDetector {
 
     // Find all arrow functions first
     while ((match = this.ARROW_FUNCTION_PATTERN.exec(text)) !== null) {
-      const arrowStart = match.index;
+      const matchStart = match.index;
+      // Find the actual => position within the match
+      const arrowInMatch = match[0].indexOf('=>');
+      const arrowStart = matchStart + arrowInMatch;
       const accessorStart = match.index + match[0].length - match[1].length;
       const accessorPrefix = match[1]; // Could be .path or [
       
@@ -285,9 +288,10 @@ export class KeyDetector {
           const bracketEnd = this.findMatchingBracket(text, pos);
           if (bracketEnd === -1) return null;
           const inner = text.substring(pos + 1, bracketEnd);
-          const strMatch = inner.match(/^['"]([^'"]*)['"]$/);
+          const trimmedInner = inner.trim();
+          const strMatch = trimmedInner.match(/^['"]([^'"]*)['"]$/);
           if (strMatch) parts.push(strMatch[1]);
-          else parts.push(inner.trim());
+          else parts.push(trimmedInner);
           pos = bracketEnd + 1;
         } else {
           let end = pos;
@@ -303,13 +307,14 @@ export class KeyDetector {
         const bracketEnd = this.findMatchingBracket(text, pos);
         if (bracketEnd === -1) return null;
         const inner = text.substring(pos + 1, bracketEnd);
-        const funcMatch = inner.match(this.FUNCTION_KEY_PATTERN);
+        const trimmedInner = inner.trim();
+        const funcMatch = trimmedInner.match(this.FUNCTION_KEY_PATTERN);
         if (funcMatch) {
           parts.push(funcMatch[2]);
         } else {
-          const strMatch = inner.match(/^['"]([^'"]*)['"]$/);
+          const strMatch = trimmedInner.match(/^['"]([^'"]*)['"]$/);
           if (strMatch) parts.push(strMatch[1]);
-          else parts.push(inner.trim());
+          else parts.push(trimmedInner);
         }
         pos = bracketEnd + 1;
         continue;

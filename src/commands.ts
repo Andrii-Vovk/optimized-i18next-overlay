@@ -370,6 +370,79 @@ export async function handleAddMissingTranslation(args?: {
 }
 
 /**
+ * Command handler for editing an existing translation
+ */
+export async function handleEditTranslation(args?: {
+  key: string;
+  locale: string;
+  namespace?: string;
+  currentValue?: string;
+}): Promise<void> {
+  if (!args || !args.key || !args.locale) {
+    vscode.window.showErrorMessage("Missing required parameters: key and locale");
+    return;
+  }
+
+  if (!translationLoader) {
+    vscode.window.showErrorMessage("Translation loader not initialized");
+    return;
+  }
+
+  const loader: TranslationLoader = translationLoader;
+  const { key, locale, namespace: providedNamespace, currentValue } = args;
+
+  // Get configuration
+  const config = vscode.workspace.getConfiguration("i18nOverlay");
+  const useFileNameAsNamespace = config.get<boolean>("useFileNameAsNamespace", true);
+  const defaultNamespace = config.get<string>("defaultNamespace", "common");
+
+  // Determine the namespace to use
+  const finalNamespace: string | undefined = providedNamespace
+    ? providedNamespace
+    : defaultNamespace;
+
+  // Get current value if not provided
+  let existingValue = currentValue;
+  if (existingValue === undefined) {
+    existingValue = loader.getValue(key, locale, undefined, finalNamespace);
+  }
+
+  // Show input box
+  const newValue = await vscode.window.showInputBox({
+    prompt: `Enter translation value for key: ${key} (${locale})`,
+    value: existingValue || "",
+  });
+
+  if (newValue === undefined) {
+    // User cancelled
+    return;
+  }
+
+  try {
+    await loader.addTranslation(locale, key, newValue.trim(), finalNamespace);
+    
+    const message = existingValue
+      ? `Translation updated in ${locale}: ${key}`
+      : `Translation added in ${locale}: ${key}`;
+    
+    vscode.window.showInformationMessage(message);
+    
+    logger.info("Translation edited", {
+      key,
+      locale,
+      oldValue: existingValue,
+      newValue: newValue.trim(),
+      namespace: finalNamespace,
+    });
+  } catch (error) {
+    logger.error("Failed to edit translation:", error);
+    vscode.window.showErrorMessage(
+      `Failed to edit translation: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
  * Command handler for adding translation to a specific locale (from Google Translate or manual)
  */
 export async function handleAddTranslationToLocale(args?: {
@@ -452,7 +525,7 @@ export async function handleAddTranslationToLocale(args?: {
     );
 
     if (!translationValue) {
-      vscode.window.showErrorMessage("Translation failed: No translation received");
+      vscode.window.showErrorMessage("Failed to translate: No translation received");
       return;
     }
 
@@ -488,6 +561,104 @@ export async function handleAddTranslationToLocale(args?: {
       `Failed to translate: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+}
+
+/**
+ * Command handler for translating to all locales
+ */
+export async function handleTranslateAllLocales(args?: {
+  key: string;
+  namespace?: string;
+  sourceText?: string;
+}): Promise<void> {
+  if (!args || !args.key) {
+    vscode.window.showErrorMessage("Missing required parameter: key");
+    return;
+  }
+
+  if (!translationLoader) {
+    vscode.window.showErrorMessage("Translation loader not initialized");
+    return;
+  }
+
+  const loader: TranslationLoader = translationLoader;
+  const { key, namespace: providedNamespace, sourceText } = args;
+
+  // Get configuration
+  const config = vscode.workspace.getConfiguration("i18nOverlay");
+  const useFileNameAsNamespace = config.get<boolean>("useFileNameAsNamespace", true);
+  const defaultNamespace = config.get<string>("defaultNamespace", "common");
+  const defaultLocale = config.get<string>("defaultLocale", "en");
+
+  // Determine the namespace to use
+  const finalNamespace: string | undefined = providedNamespace
+    ? providedNamespace
+    : defaultNamespace;
+
+  // Get source text for translation if not provided
+  let sourceTranslation = sourceText;
+  if (!sourceTranslation) {
+    sourceTranslation = loader.getValue(key, defaultLocale, undefined, finalNamespace);
+    if (!sourceTranslation) {
+      vscode.window.showErrorMessage(
+        `No source translation found in default locale (${defaultLocale}) to translate from`
+      );
+      return;
+    }
+  }
+
+  // Get all locales
+  const locales = loader.getLocales();
+  const otherLocales = locales.filter((loc) => loc !== defaultLocale);
+
+  if (otherLocales.length === 0) {
+    vscode.window.showInformationMessage("No other locales found to translate to");
+    return;
+  }
+
+  // Translate to all other locales
+  const results: Array<{ locale: string; success: boolean; error?: Error }> = [];
+
+  for (const locale of otherLocales) {
+    try {
+      const targetLangCode = getGoogleTranslateLangCode(locale);
+      const sourceLangCode = getGoogleTranslateLangCode(defaultLocale);
+      
+      const translationValue = await translateText(sourceTranslation, targetLangCode, sourceLangCode);
+      
+      if (translationValue) {
+        await loader.addTranslation(locale, key, translationValue.trim(), finalNamespace);
+        results.push({ locale, success: true });
+      } else {
+        results.push({ locale, success: false, error: new Error("No translation received") });
+      }
+    } catch (error) {
+      results.push({
+        locale,
+        success: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
+  }
+
+  // Show results
+  const successCount = results.filter((r) => r.success).length;
+  const failureCount = results.filter((r) => !r.success).length;
+
+  if (failureCount === 0) {
+    vscode.window.showInformationMessage(`Successfully translated to ${successCount} locale(s)`);
+  } else {
+    vscode.window.showWarningMessage(
+      `Translated to ${successCount} locale(s), failed for ${failureCount}`
+    );
+  }
+
+  logger.info("Translated to all locales", {
+    key,
+    successCount,
+    failureCount,
+    results,
+  });
 }
 
 /**

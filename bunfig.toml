@@ -2,3 +2,7 @@
 [install]
 # Generate lockfile for reproducible installs
 lockfile = true
+
+[test]
+# Only scan for tests in the src directory (excludes compiled output in out/)
+root = "src"

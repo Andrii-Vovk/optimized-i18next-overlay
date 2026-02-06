@@ -116,9 +116,16 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
         );
       }
 
-      // Show all locales with globe icons
-      for (const { locale, value } of translations) {
-        const localeLabel = locale === defaultLocale ? `**${locale}** (default)` : `**${locale}**`;
+      // Sort translations: default locale first, then others
+      const sortedTranslations = [...translations].sort((a, b) => {
+        if (a.locale === defaultLocale) return -1;
+        if (b.locale === defaultLocale) return 1;
+        return a.locale.localeCompare(b.locale);
+      });
+
+      // Show all locales with buttons at the start
+      for (const { locale, value } of sortedTranslations) {
+        const localeLabel = `**${locale}**`;
         
         // Create command URIs (used for both existing and missing translations)
         const commandArgs = encodeURIComponent(
@@ -140,6 +147,16 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
         );
         const goToCommandUri = `command:i18nOverlay.goToTranslation?${goToCommandArgs}`;
         
+        const editCommandArgs = encodeURIComponent(
+          JSON.stringify({
+            key: detectedKey.key,
+            locale: locale,
+            namespace: detectedKey.namespace || undefined,
+            currentValue: value || undefined,
+          })
+        );
+        const editCommandUri = `command:i18nOverlay.editTranslation?${editCommandArgs}`;
+        
         if (value) {
           // Translation exists - truncate if needed
           let displayValue = value;
@@ -156,16 +173,29 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
             .replace(/\[/g, "\\[")
             .replace(/\]/g, "\\]");
           
-          // Show buttons before translation text
+          // Show buttons before locale label
           markdown.appendMarkdown(
-            `${localeLabel}: [📄](${goToCommandUri}) [🌐](${commandUri}) ${escapedValue}\n\n`
+            `[↗️](${goToCommandUri}) [✏️](${editCommandUri}) [🌐](${commandUri}) ${localeLabel}: ${escapedValue}\n\n`
           );
         } else {
-          // Translation missing - show buttons before "missing" text
+          // Translation missing - show buttons before locale label
           markdown.appendMarkdown(
-            `${localeLabel}: [📄](${goToCommandUri}) [🌐](${commandUri}) *missing*\n\n`
+            `[↗️](${goToCommandUri}) [✏️](${editCommandUri}) [🌐](${commandUri}) ${localeLabel}: *missing*\n\n`
           );
         }
+      }
+
+      // Add button to translate all locales if we have source text and multiple locales
+      if (sourceText && allLocales.length > 1) {
+        const translateAllCommandArgs = encodeURIComponent(
+          JSON.stringify({
+            key: detectedKey.key,
+            namespace: detectedKey.namespace || undefined,
+            sourceText: sourceText,
+          })
+        );
+        const translateAllCommandUri = `command:i18nOverlay.translateAllLocales?${translateAllCommandArgs}`;
+        markdown.appendMarkdown(`\n[🌍 Translate all languages](${translateAllCommandUri})\n\n`);
       }
 
       // Add key info
