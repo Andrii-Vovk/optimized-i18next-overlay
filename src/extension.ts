@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { TranslationLoader } from './translationLoader';
 import { DecorationManager } from './decoration';
 import { logger } from './logger';
-import { initializeCommands, handleReload, handleShowLogs, handleInsertTFunction, handleExtractStringToLocale, handleAddMissingTranslation, handleAddTranslationToLocale, handleGoToTranslation } from './commands';
+import { initializeCommands, handleReload, handleShowLogs, handleInsertTFunction, handleExtractStringToLocale, handleAddMissingTranslation, handleAddTranslationToLocale, handleGoToTranslation, handleTranslateAllLocales, handleEditTranslation } from './commands';
 import { TranslationHoverProvider } from './hover';
 
 let decorationManager: DecorationManager | undefined;
@@ -185,8 +185,14 @@ export function activate(context: vscode.ExtensionContext) {
     // Add translation to specific locale command
     vscode.commands.registerCommand('i18nOverlay.addTranslationToLocale', handleAddTranslationToLocale),
 
+    // Edit translation command
+    vscode.commands.registerCommand('i18nOverlay.editTranslation', handleEditTranslation),
+
     // Go to translation command
     vscode.commands.registerCommand('i18nOverlay.goToTranslation', handleGoToTranslation),
+
+    // Translate all locales command
+    vscode.commands.registerCommand('i18nOverlay.translateAllLocales', handleTranslateAllLocales),
 
     // Register hover provider
     vscode.languages.registerHoverProvider('*', new TranslationHoverProvider(translationLoader)),

@@ -101,6 +101,9 @@ export class DecorationManager {
     let foundCount = 0;
     let missingCount = 0;
 
+    // Get all locales for counting translations
+    const allLocales = this.translationLoader.getLocales();
+
     for (const detectedKey of keys) {
       // Check if cursor is inside this function call
       // If cursor is within the range, skip decorations to show original text
@@ -184,6 +187,22 @@ export class DecorationManager {
         overlayPosition
       });
 
+      // Count translations across all locales
+      let translationCount = 0;
+      for (const loc of allLocales) {
+        const value = this.translationLoader.getValue(
+          detectedKey.key,
+          loc,
+          undefined,
+          detectedKey.namespace
+        );
+        if (value) {
+          translationCount++;
+        }
+      }
+      const totalLocales = allLocales.length;
+      const hasMissingTranslations = translationCount < totalLocales && totalLocales > 1;
+
       // Add overlay text (inlay hint) - shows translation instead of arrow function
       // Use 'before' to insert the translation right after the opening paren
       // Styled with muted color, background, and border (using CSS string like i18n-ally)
@@ -194,33 +213,44 @@ export class DecorationManager {
         if (maxHintLength > 0 && translation.length > maxHintLength) {
           displayText = translation.substring(0, maxHintLength) + '…';
         }
+        
+        // Prepend x/y indicator if translations are missing
+        const prefix = hasMissingTranslations ? `${translationCount}/${totalLocales} ` : '';
+        
         // Use a more muted color - descriptionForeground is already muted, use it for both text and border
         decorations.push({
           range: overlayRange,
           renderOptions: {
             before: {
-              contentText: `${delimiter}${displayText} `,
-              color: new ThemeColor('descriptionForeground'),
+              contentText: `${prefix}${delimiter}${displayText} `,
+              color: hasMissingTranslations ? '#d4a017' : new ThemeColor('descriptionForeground'),
               fontStyle: 'normal',
               backgroundColor: new ThemeColor('editor.background'),
               // Border uses CSS variable for the same color as text
-              border: '0.5px solid var(--vscode-descriptionForeground); border-radius: 2px; padding: 1px 3px;',
+              border: hasMissingTranslations 
+                ? '0.5px solid #d4a017; border-radius: 2px; padding: 1px 3px;'
+                : '0.5px solid var(--vscode-descriptionForeground); border-radius: 2px; padding: 1px 3px;',
             },
           },
         });
       } else {
         missingCount++;
+        // Prepend x/y indicator if translations are missing
+        const prefix = hasMissingTranslations ? `${translationCount}/${totalLocales} ` : '';
+        
         // Show missing indicator
         decorations.push({
           range: overlayRange,
           renderOptions: {
             before: {
-              contentText: `${delimiter}[missing] `,
-              color: new ThemeColor('errorForeground'),
+              contentText: `${prefix}${delimiter}[missing] `,
+              color: hasMissingTranslations ? '#d4a017' : new ThemeColor('errorForeground'),
               fontStyle: 'normal',
               backgroundColor: new ThemeColor('editor.background'),
               // Border uses CSS variable for the same color as text
-              border: '0.5px solid var(--vscode-errorForeground); border-radius: 2px; padding: 1px 3px;',
+              border: hasMissingTranslations
+                ? '0.5px solid #d4a017; border-radius: 2px; padding: 1px 3px;'
+                : '0.5px solid var(--vscode-errorForeground); border-radius: 2px; padding: 1px 3px;',
             },
           },
         });

@@ -101,9 +101,19 @@ export class TranslationHoverProvider implements vscode.HoverProvider {
         }
       }
 
+      // Calculate translation count
+      const translationCount = translations.filter(t => t.value).length;
+      const totalLocales = allLocales.length;
+      const hasMissingTranslations = translationCount < totalLocales;
+
       // Create markdown content
       const markdown = new vscode.MarkdownString();
       markdown.isTrusted = true; // Allow command links
+
+      // Add yellow x/y indicator if translations are missing
+      if (hasMissingTranslations && totalLocales > 1) {
+        markdown.appendMarkdown(`<span style="color: #d4a017;">**${translationCount}/${totalLocales}**</span> `);
+      }
 
       if (hasTranslation) {
         // Show translations in all locales
